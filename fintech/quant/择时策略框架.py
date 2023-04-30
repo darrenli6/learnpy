@@ -102,5 +102,77 @@ t_rate = 1.0 / 1000  # 印花税，tax，默认为千分之1
 df.at[0,"hold_num"] =0
 df.at[0,"stack_value"] =0
 df.at[0,"actual_pos"] = 0
+df.at[0,'cash'] = initial_money
+df.at[0,"equity"] = initial_money
+
+
+for i in range(1,df.shape[0]):
+
+    # 前一天持有的股票的数量
+    hold_num = df.at[i-1,"hold_num"]
+
+    #判断当天是否除权，若发生除权 需要调整hold_num
+
+    if abs((df.at[i, '收盘价'] / df.at[i-1, '收盘价'] - 1) - df.at[i, '涨跌幅']) > 0.001:
+        stock_value = df.at[i - 1, 'stock_value']
+        # 交易所会公布除权之后的价格
+        last_price = df.at[i, '收盘价'] / (df.at[i, '涨跌幅'] + 1)
+        hold_num = stock_value / last_price
+        hold_num = int(hold_num)
+
+    # 判断是否调整仓位  拿今天的仓位pos 和昨天的仓位pos 进行比较
+    # 需要调整仓位
+
+    if df.at[i,'pos'] !=df.at[i-1,'pos']:
+        # 对于需要调整到的仓位，需要买入多少股票
+        # 昨天的总资产 * 今天的仓位 / 今天的收盘价，得到需要持有的股票数
+        theory_num =df.at[i-1,'equity'] * df.at[i,'pos'] / df.at[i,'开盘价']
+        # 向下取整
+        theory_num = int(theory_num)
+
+        if theory_num>=hold_num:
+            buy_num = theory_num -hold_num
+            buy_num = int(buy_num/100 )* 100
+            # 高于开盘价买入
+            buy_cash = buy_num * (df.at[i,"开盘价"]+ slippage)
+
+            commission = round(buy_cash * c_rate,2)
+
+            if commission >5 and commission!=0:
+                commission = 5
+
+            df.at[i,"手续费"] = commission
+            # 计算当天收盘时持有股票的数量和现金
+            df.at[i, 'hold_num'] = hold_num + buy_num  # 持有股票，昨天持有的股票，加上今天买入的股票
+            df.at[i, 'cash'] = df.at[i - 1, 'cash'] - buy_cash - commission  # 剩余现金
+        else:
+            sell_num = hold_num  - theory_num
+            sell_cash = sell_num * (df.at[i,"开盘价"] - slippage)
+            commission = round(max(sell_cash * c_rate, 5), 2)
+            df.at[i, '手续费'] = commission
+            # 计算印花税，保留2位小数。历史上有段时间，买入也会收取印花税
+            tax = round(sell_cash * t_rate, 2)
+            df.at[i, '印花税'] = tax
+
+            # 计算当天收盘时持有股票的数量和现金
+            df.at[i, 'hold_num'] = hold_num - sell_num  # 持有股票
+            df.at[i, 'cash'] = df.at[i - 1, 'cash'] + sell_cash - commission - tax  # 剩余现金
+            # print df.iloc[50:100][['交易日期', '开盘价', 'pos', 'hold_num', 'cash', '手续费', '印花税']]
+
+    else:
+        # 不需要调仓 计算收益
+        df.at[i,"hold_num"] = hold_num
+        df.at[i,"cash"] = df.at[i-1,"cash"]
+
+    df.at[i, 'stock_value'] = df.at[i, 'hold_num'] * df.at[i, '收盘价']  # 股票市值
+    df.at[i, 'equity'] = df.at[i, 'cash'] + df.at[i, 'stock_value']  # 总资产
+    df.at[i, 'actual_pos'] = df.at[i, 'stock_value'] / df.at[i, 'equity']  # 实际仓位
+
+df = df[['交易日期', '收盘价', 'pos', 'hold_num', 'cash', 'stock_value', 'equity', 'actual_pos', '手续费', '印花税']]
+# print(df)
+
+print(df[["手续费","印花税"]].sum())
+
+
 
 print(df )
